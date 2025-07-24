@@ -13,15 +13,15 @@
 7. Tags on the font
 
 Fonts/
-└── FontName(source_FontName)/
-├── FontName.ttf
-├── FontName_Image1.jpg
-├── FontName_Image2.jpg
-├── description.txt
-├── license.txt
-└── source_url.txt
-└──font tags.txt
-└──font_info.txt
+└── source_font_name/
+    ├── FontName.ttf
+    ├── FontName_Image1.jpg
+    ├── FontName_Image2.jpg
+    ├── description.txt
+    ├── license.txt
+    └── source_url.txt
+    └── font tags.txt
+    └── font_info.txt
 
 
 
