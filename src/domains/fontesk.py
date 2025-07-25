@@ -25,7 +25,8 @@ def remove_at(path):
 def download_file(url: str, output_path: str) -> str:
     try:
         subprocess.run(
-            ["curl", "-L", "--ssl-no-revoke", url, "-o", output_path], check=True
+            ["curl", "-L", "--ssl-no-revoke", url, "-o", output_path],
+            check=True,
         )
         return output_path
     except Exception as e:
@@ -61,7 +62,9 @@ def find_font_file(root_path: str) -> str:
     return ""
 
 
-def copy_and_rename_file(src_file: str, destination_folder: str, new_name: str) -> str:
+def copy_and_rename_file(
+    src_file: str, destination_folder: str, new_name: str
+) -> str:
     try:
         os.makedirs(destination_folder, exist_ok=True)
         dest_path = os.path.join(destination_folder, new_name)
@@ -113,9 +116,11 @@ def process_font(data) -> str:
     zip_path = download_file(data["download_link"], f"{path}/font_zip.zip")
     unzip_path = unzip_folder(zip_path)
     first_directory = get_firstdir(unzip_path)
-    font_lookup_path = f"{first_directory}/static" if first_directory else unzip_path
+    font_lookup_path = (
+        f"{first_directory}/static" if first_directory else unzip_path
+    )
     licence_lookup_path = first_directory if first_directory else unzip_path
-    licence_ends_with = 'license.txt' if first_directory else 'nfo.txt'
+    licence_ends_with = "license.txt" if first_directory else "nfo.txt"
     # Font .ttf or .otf
     font_file_path = find_font_file(font_lookup_path)
     copy_and_rename_file(
@@ -123,7 +128,9 @@ def process_font(data) -> str:
     )
     # Images
     for index, img in enumerate(data["images"]):
-        download_file(img, f"{path}/{font_name}_image{index+1}.{img.split('.')[-1]}")
+        download_file(
+            img, f"{path}/{font_name}_image{index + 1}.{img.split('.')[-1]}"
+        )
         pass
     # Full License
     for filename in os.listdir(licence_lookup_path):
@@ -185,7 +192,7 @@ def get_font_information(font_link: str) -> str:
     tree = HTMLParser(response.text)
     # 1. Font Name
     node = tree.css_first("h1.entry-title")
-    name = node.text().strip() if node else "" 
+    name = node.text().strip() if node else ""
     # 2. Two Images
     images = extract_images(tree, limit=2)
     # 3. Description
@@ -197,7 +204,9 @@ def get_font_information(font_link: str) -> str:
     )
     # 4. Licence
     license_node = tree.css_first("div.content-meta-license a")
-    license_text = license_node.text(strip=True) if license_node else "Unspecified"
+    license_text = (
+        license_node.text(strip=True) if license_node else "Unspecified"
+    )
     # 5. Tags
     tags = []
     tag_section = tree.css_first("footer.entry-meta")
@@ -223,9 +232,7 @@ def get_font_information(font_link: str) -> str:
 
 def get_font_informations() -> List[str]:
     font_folders = []
-    page_url = (
-        "https://fontesk.com/license/free-for-commercial-use,free-for-personal-use/"
-    )
+    page_url = "https://fontesk.com/license/free-for-commercial-use,free-for-personal-use/"
     font_links = get_font_links(page_url)
     print(f"got links : {font_links}")
     for font_link in font_links:
@@ -246,4 +253,3 @@ def get_font_links(page_url: str) -> List[str]:
         if href:
             fonts_links.append(href)
     return fonts_links
-
