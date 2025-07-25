@@ -1,3 +1,4 @@
+import asyncio
 import os
 from typing import List
 import zipfile
@@ -6,6 +7,8 @@ import httpx
 from selectolax.parser import HTMLParser
 import re
 import subprocess
+
+semaphore = asyncio.Semaphore(10)
 
 
 def remove_at(path):
@@ -62,9 +65,7 @@ def find_font_file(root_path: str) -> str:
     return ""
 
 
-def copy_and_rename_file(
-    src_file: str, destination_folder: str, new_name: str
-) -> str:
+def copy_and_rename_file(src_file: str, destination_folder: str, new_name: str) -> str:
     try:
         os.makedirs(destination_folder, exist_ok=True)
         dest_path = os.path.join(destination_folder, new_name)
@@ -116,9 +117,7 @@ def process_font(data) -> str:
     zip_path = download_file(data["download_link"], f"{path}/font_zip.zip")
     unzip_path = unzip_folder(zip_path)
     first_directory = get_firstdir(unzip_path)
-    font_lookup_path = (
-        f"{first_directory}/static" if first_directory else unzip_path
-    )
+    font_lookup_path = f"{first_directory}/static" if first_directory else unzip_path
     licence_lookup_path = first_directory if first_directory else unzip_path
     licence_ends_with = "license.txt" if first_directory else "nfo.txt"
     # Font .ttf or .otf
@@ -128,9 +127,7 @@ def process_font(data) -> str:
     )
     # Images
     for index, img in enumerate(data["images"]):
-        download_file(
-            img, f"{path}/{font_name}_image{index + 1}.{img.split('.')[-1]}"
-        )
+        download_file(img, f"{path}/{font_name}_image{index + 1}.{img.split('.')[-1]}")
         pass
     # Full License
     for filename in os.listdir(licence_lookup_path):
@@ -179,77 +176,110 @@ def extract_download_link(tree):
     return download_link
 
 
-def get_font_information(font_link: str) -> str:
+async def get_font_information(client: httpx.AsyncClient, font_link: str) -> str:
+    async with semaphore:
+        try:
+            response = await client.get(font_link, timeout=30)
+            response.raise_for_status()
+        except httpx.RequestError as e:
+            print(f"Erreur réseau pour {font_link}: {e}")
+            return ""
+        except httpx.HTTPStatusError as e:
+            print(f"Erreur HTTP {e.response.status_code} pour {font_link}")
+            return ""
+
+        tree = HTMLParser(response.text)
+
+        # 1. Font Name
+        node = tree.css_first("h1.entry-title")
+        name = node.text().strip() if node else ""
+
+        # 2. Images
+        images = extract_images(tree, limit=2)
+
+        # 3. Description
+        description_nodes = tree.css("div.entry-content p")
+        description = (
+            " ".join([n.text(strip=True) for n in description_nodes])
+            if description_nodes
+            else ""
+        )
+
+        # 4. License
+        license_node = tree.css_first("div.content-meta-license a")
+        license_text = license_node.text(strip=True) if license_node else "Unspecified"
+
+        # 5. Tags
+        tags = []
+        tag_section = tree.css_first("footer.entry-meta")
+        if tag_section:
+            for tag_node in tag_section.css("a[rel='tag']"):
+                tags.append(tag_node.text(strip=True))
+
+        # 6. Download link
+        download_link = extract_download_link(tree)
+
+        data = {
+            "source_url": font_link,
+            "name": name,
+            "images": images,
+            "description": description,
+            "license": license_text,
+            "tags": tags,
+            "download_link": download_link,
+        }
+
+        print(data)
+        font_relative_folder = process_font(data)
+        return font_relative_folder
+
+
+async def get_font_links(client: httpx.AsyncClient, page_url: str) -> List[str]:
     try:
-        response = httpx.get(font_link, timeout=30)
+        fonts_links = []
+        response = await client.get(page_url, timeout=30)
         response.raise_for_status()
     except httpx.RequestError as e:
-        print(f"Erreur réseau pour {font_link}: {e}")
-        return ""
+        print(f"Erreur réseau pour {page_url}: {e}")
+        return []
     except httpx.HTTPStatusError as e:
-        print(f"Erreur HTTP {e.response.status_code} pour {font_link}")
-        return ""
-    tree = HTMLParser(response.text)
-    # 1. Font Name
-    node = tree.css_first("h1.entry-title")
-    name = node.text().strip() if node else ""
-    # 2. Two Images
-    images = extract_images(tree, limit=2)
-    # 3. Description
-    description_nodes = tree.css("div.entry-content p")
-    description = (
-        " ".join([node.text(strip=True) for node in description_nodes])
-        if description_nodes
-        else ""
-    )
-    # 4. Licence
-    license_node = tree.css_first("div.content-meta-license a")
-    license_text = (
-        license_node.text(strip=True) if license_node else "Unspecified"
-    )
-    # 5. Tags
-    tags = []
-    tag_section = tree.css_first("footer.entry-meta")
-    if tag_section:
-        for tag_node in tag_section.css("a[rel='tag']"):
-            tags.append(tag_node.text(strip=True))
-    # 6. ZIP Link
-    download_link = extract_download_link(tree)
-    #
-    data = {
-        "source_url": font_link,
-        "name": name,
-        "images": images,
-        "description": description,
-        "license": license_text,
-        "tags": tags,
-        "download_link": download_link,
-    }
-    print(data)
-    font_relative_folder = process_font(data)
-    return font_relative_folder
-
-
-def get_font_informations() -> List[str]:
-    font_folders = []
-    page_url = "https://fontesk.com/license/free-for-commercial-use,free-for-personal-use/"
-    font_links = get_font_links(page_url)
-    print(f"got links : {font_links}")
-    for font_link in font_links:
-        font_folder = get_font_information(font_link)
-        font_folders.append(font_folder)
-    return font_folders
-
-
-def get_font_links(page_url: str) -> List[str]:
-    fonts_links = []
-    response = httpx.get(page_url, timeout=30)
-    if response.status_code != 200:
-        print(f"Erreur HTTP {response.status_code} pour {page_url}")
-        return fonts_links
+        print(f"Erreur HTTP {e.response.status_code} pour {page_url}")
+        return []
     tree = HTMLParser(response.text)
     for node in tree.css("h2.entry-title a"):
         href = node.attributes.get("href")
         if href:
             fonts_links.append(href)
     return fonts_links
+
+
+async def get_all_font_links(client: httpx.AsyncClient, base_url: str) -> List[str]:
+    all_links = []
+    page = 1
+    while True:
+        page_url = base_url if page == 1 else f"{base_url}page/{page}/"
+        print(f" ---------------- << Scraping Page {page} >> ---------------- ")
+        links = await get_font_links(client, page_url)
+        if not links:
+            print("Aucune police trouvée, arrêt du scraping.")
+            break
+        all_links.extend(links)
+        page += 1
+
+    return all_links
+
+
+async def get_font_informations() -> List[str]:
+    font_folders = []
+    page_url = (
+        "https://fontesk.com/license/free-for-commercial-use,free-for-personal-use/"
+    )
+    async with httpx.AsyncClient(
+        follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}
+    ) as client:
+        font_links = await get_all_font_links(client, page_url)
+        print(f"Got -- {len(font_links)} -- links")
+        tasks = [get_font_information(client, link) for link in font_links]
+        font_folders = await asyncio.gather(*tasks)
+
+    return font_folders

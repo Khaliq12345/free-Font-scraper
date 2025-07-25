@@ -1,10 +1,11 @@
-from src.domains.fontesk import get_font_informations #, get_font_information
+import asyncio
+from src.domains.fontesk import get_font_informations
 
 
 def main():
     print("Hello from free-font-scraper !")
-    get_font_informations()
-    # get_font_information('https://fontesk.com/nibali-font/')
+    result = asyncio.run(get_font_informations())
+    print(f"Total fonts processed: {len([f for f in result if f])}")
 
 
 if __name__ == "__main__":
