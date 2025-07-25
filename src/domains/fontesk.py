@@ -7,8 +7,13 @@ import httpx
 from selectolax.parser import HTMLParser
 import re
 import subprocess
+import argparse
 
 semaphore = asyncio.Semaphore(10)
+parser = argparse.ArgumentParser()
+parser.add_argument("--maxPage", type=int, default=0)
+args = parser.parse_args()
+print(args.maxPage)
 
 
 def remove_at(path):
@@ -65,7 +70,9 @@ def find_font_file(root_path: str) -> str:
     return ""
 
 
-def copy_and_rename_file(src_file: str, destination_folder: str, new_name: str) -> str:
+def copy_and_rename_file(
+    src_file: str, destination_folder: str, new_name: str
+) -> str:
     try:
         os.makedirs(destination_folder, exist_ok=True)
         dest_path = os.path.join(destination_folder, new_name)
@@ -117,7 +124,9 @@ def process_font(data) -> str:
     zip_path = download_file(data["download_link"], f"{path}/font_zip.zip")
     unzip_path = unzip_folder(zip_path)
     first_directory = get_firstdir(unzip_path)
-    font_lookup_path = f"{first_directory}/static" if first_directory else unzip_path
+    font_lookup_path = (
+        f"{first_directory}/static" if first_directory else unzip_path
+    )
     licence_lookup_path = first_directory if first_directory else unzip_path
     licence_ends_with = "license.txt" if first_directory else "nfo.txt"
     # Font .ttf or .otf
@@ -127,7 +136,9 @@ def process_font(data) -> str:
     )
     # Images
     for index, img in enumerate(data["images"]):
-        download_file(img, f"{path}/{font_name}_image{index + 1}.{img.split('.')[-1]}")
+        download_file(
+            img, f"{path}/{font_name}_image{index + 1}.{img.split('.')[-1]}"
+        )
         pass
     # Full License
     for filename in os.listdir(licence_lookup_path):
@@ -176,7 +187,9 @@ def extract_download_link(tree):
     return download_link
 
 
-async def get_font_information(client: httpx.AsyncClient, font_link: str) -> str:
+async def get_font_information(
+    client: httpx.AsyncClient, font_link: str
+) -> str:
     async with semaphore:
         try:
             response = await client.get(font_link, timeout=30)
@@ -207,7 +220,9 @@ async def get_font_information(client: httpx.AsyncClient, font_link: str) -> str
 
         # 4. License
         license_node = tree.css_first("div.content-meta-license a")
-        license_text = license_node.text(strip=True) if license_node else "Unspecified"
+        license_text = (
+            license_node.text(strip=True) if license_node else "Unspecified"
+        )
 
         # 5. Tags
         tags = []
@@ -253,7 +268,9 @@ async def get_font_links(client: httpx.AsyncClient, page_url: str) -> List[str]:
     return fonts_links
 
 
-async def get_all_font_links(client: httpx.AsyncClient, base_url: str) -> List[str]:
+async def get_all_font_links(
+    client: httpx.AsyncClient, base_url: str
+) -> List[str]:
     all_links = []
     page = 1
     while True:
@@ -264,16 +281,15 @@ async def get_all_font_links(client: httpx.AsyncClient, base_url: str) -> List[s
             print("Aucune police trouvée, arrêt du scraping.")
             break
         all_links.extend(links)
+        if (page == args.maxPage) and (args.maxPage != 0):
+            break
         page += 1
-
     return all_links
 
 
 async def get_font_informations() -> List[str]:
     font_folders = []
-    page_url = (
-        "https://fontesk.com/license/free-for-commercial-use,free-for-personal-use/"
-    )
+    page_url = "https://fontesk.com/license/free-for-commercial-use,free-for-personal-use/"
     async with httpx.AsyncClient(
         follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}
     ) as client:
