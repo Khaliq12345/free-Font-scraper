@@ -1,4 +1,3 @@
-import asyncio
 import os
 from typing import List
 import zipfile
@@ -9,11 +8,29 @@ import re
 import subprocess
 import argparse
 
-semaphore = asyncio.Semaphore(10)
+done_path = './done.txt'
 parser = argparse.ArgumentParser()
 parser.add_argument("--maxPage", type=int, default=0)
 args = parser.parse_args()
 print(args.maxPage)
+
+
+def write_done(text: str):
+    os.makedirs(os.path.dirname(done_path), exist_ok=True)
+    # 
+    with open(done_path, "a", encoding="utf-8") as f:
+        f.write(text + "\n")
+
+
+def check_if_done(text: str) -> bool:
+    try:
+        with open(done_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if text.strip() == line.strip():
+                    return True
+    except FileNotFoundError:
+        return False
+    return False
 
 
 def remove_at(path):
@@ -187,72 +204,70 @@ def extract_download_link(tree):
     return download_link
 
 
-async def get_font_information(
-    client: httpx.AsyncClient, font_link: str
+def get_font_information(font_link: str
 ) -> str:
-    async with semaphore:
-        try:
-            response = await client.get(font_link, timeout=30)
-            response.raise_for_status()
-        except httpx.RequestError as e:
-            print(f"Erreur réseau pour {font_link}: {e}")
-            return ""
-        except httpx.HTTPStatusError as e:
-            print(f"Erreur HTTP {e.response.status_code} pour {font_link}")
-            return ""
+    try:
+        response = httpx.get(font_link, timeout=30)
+        response.raise_for_status()
+    except httpx.RequestError as e:
+        print(f"Erreur réseau pour {font_link}: {e}")
+        return ""
+    except httpx.HTTPStatusError as e:
+        print(f"Erreur HTTP {e.response.status_code} pour {font_link}")
+        return ""
 
-        tree = HTMLParser(response.text)
+    tree = HTMLParser(response.text)
 
-        # 1. Font Name
-        node = tree.css_first("h1.entry-title")
-        name = node.text().strip() if node else ""
+    # 1. Font Name
+    node = tree.css_first("h1.entry-title")
+    name = node.text().strip() if node else ""
 
-        # 2. Images
-        images = extract_images(tree, limit=2)
+    # 2. Images
+    images = extract_images(tree, limit=2)
 
-        # 3. Description
-        description_nodes = tree.css("div.entry-content p")
-        description = (
-            " ".join([n.text(strip=True) for n in description_nodes])
-            if description_nodes
-            else ""
-        )
+    # 3. Description
+    description_nodes = tree.css("div.entry-content p")
+    description = (
+        " ".join([n.text(strip=True) for n in description_nodes])
+        if description_nodes
+        else ""
+    )
 
-        # 4. License
-        license_node = tree.css_first("div.content-meta-license a")
-        license_text = (
-            license_node.text(strip=True) if license_node else "Unspecified"
-        )
+    # 4. License
+    license_node = tree.css_first("div.content-meta-license a")
+    license_text = (
+        license_node.text(strip=True) if license_node else "Unspecified"
+    )
 
-        # 5. Tags
-        tags = []
-        tag_section = tree.css_first("footer.entry-meta")
-        if tag_section:
-            for tag_node in tag_section.css("a[rel='tag']"):
-                tags.append(tag_node.text(strip=True))
+    # 5. Tags
+    tags = []
+    tag_section = tree.css_first("footer.entry-meta")
+    if tag_section:
+        for tag_node in tag_section.css("a[rel='tag']"):
+            tags.append(tag_node.text(strip=True))
 
-        # 6. Download link
-        download_link = extract_download_link(tree)
+    # 6. Download link
+    download_link = extract_download_link(tree)
 
-        data = {
-            "source_url": font_link,
-            "name": name,
-            "images": images,
-            "description": description,
-            "license": license_text,
-            "tags": tags,
-            "download_link": download_link,
-        }
+    data = {
+        "source_url": font_link,
+        "name": name,
+        "images": images,
+        "description": description,
+        "license": license_text,
+        "tags": tags,
+        "download_link": download_link,
+    }
 
-        print(data)
-        font_relative_folder = process_font(data)
-        return font_relative_folder
+    print(data)
+    font_relative_folder = process_font(data)
+    return font_relative_folder
 
 
-async def get_font_links(client: httpx.AsyncClient, page_url: str) -> List[str]:
+def get_font_links(page_url: str) -> List[str]:
     try:
         fonts_links = []
-        response = await client.get(page_url, timeout=30)
+        response = httpx.get(page_url, timeout=30)
         response.raise_for_status()
     except httpx.RequestError as e:
         print(f"Erreur réseau pour {page_url}: {e}")
@@ -268,15 +283,14 @@ async def get_font_links(client: httpx.AsyncClient, page_url: str) -> List[str]:
     return fonts_links
 
 
-async def get_all_font_links(
-    client: httpx.AsyncClient, base_url: str
+def get_all_font_links(base_url: str
 ) -> List[str]:
     all_links = []
     page = 1
     while True:
         page_url = base_url if page == 1 else f"{base_url}page/{page}/"
         print(f" ---------------- << Scraping Page {page} >> ---------------- ")
-        links = await get_font_links(client, page_url)
+        links = get_font_links(page_url)
         if not links:
             print("Aucune police trouvée, arrêt du scraping.")
             break
@@ -287,15 +301,14 @@ async def get_all_font_links(
     return all_links
 
 
-async def get_font_informations() -> List[str]:
+def get_font_informations() -> List[str]:
     font_folders = []
     page_url = "https://fontesk.com/license/free-for-commercial-use,free-for-personal-use/"
-    async with httpx.AsyncClient(
-        follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}
-    ) as client:
-        font_links = await get_all_font_links(client, page_url)
-        print(f"Got -- {len(font_links)} -- links")
-        tasks = [get_font_information(client, link) for link in font_links]
-        font_folders = await asyncio.gather(*tasks)
-
+    font_links = get_all_font_links(page_url)
+    print(f"Got -- {len(font_links)} -- links")
+    for font_link in font_links:
+        if not check_if_done(font_link):
+            font_folder = get_font_information(font_link)
+            font_folders.append(font_folder)
+            write_done(font_link)
     return font_folders
